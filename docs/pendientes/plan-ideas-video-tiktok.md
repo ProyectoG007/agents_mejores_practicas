@@ -820,7 +820,9 @@ El coaching ontológico es una práctica de acompañamiento centrada en el lengu
 
 - [x] Rango de edad: 4 a 12 años (confirmado).
 - [x] Acompañamiento por un profesional del coaching, con derivación a especialistas (confirmado).
-- [ ] Quién paga (familia, colegio o profesional) y quién decide la compra.
+- [x] Paga la familia (confirmado).
+- [x] Dispositivo: tablet o celular; la sesión es en casa (confirmado).
+- [x] Lanzamiento en Rosario, Argentina (confirmado).
 - [ ] Qué hace la app hoy y cómo guarda los datos.
 - [ ] Qué profesionales validan el contenido y el protocolo de riesgo.
 - [ ] Qué leyes aplican y quién las revisa.
@@ -873,4 +875,55 @@ Datos aportados por quien lidera el proyecto: el público tiene entre 4 y 12 añ
 
 **Primera versión mínima:** panel del profesional, entre 3 y 5 actividades, el registro mínimo de la base común y el flujo de alertas al profesional. Sin IA y sin pagos.
 
-**Pendiente de definir:** quién paga (familia, colegio o profesional), en qué países se ofrece, en qué dispositivo se usa (tablet, celular) y si el niño usa la app durante la sesión o también en casa.
+**Pendiente de definir:** ver la sección siguiente, que registra las respuestas posteriores.
+
+### Confirmado: paga la familia, tablet o celular, sesión en casa, lanzamiento en Rosario (Argentina)
+
+**Consecuencias de diseño:**
+
+- La sesión en casa, sin el profesional presente, implica que las alertas pueden leerse más tarde. Hace falta un **protocolo de tiempos** (cuánto tarda el profesional en revisar según la gravedad) y, para la familia, un **mensaje de qué hacer si el niño necesita ayuda ahora**, con recursos locales verificados.
+- Para los de 4 a 6 años, el adulto presente durante la actividad es una condición de uso, no una sugerencia.
+- La familia es la compradora y la responsable del consentimiento: el flujo de compra, consentimiento y ajustes se diseña para el adulto.
+- Mercado Pago está entre las herramientas disponibles en este entorno (plugin `mercadopago`, con suscripciones). Para una suscripción familiar en Argentina es una opción natural; a confirmar al diseñar los pagos.
+
+### Orientación legal para Rosario (Argentina), a confirmar con un abogado local
+
+Esto es una orientación basada en búsquedas de noviembre de 2026, no asesoramiento legal.
+
+- **La Ley 25.326 de protección de datos personales sigue vigente.** No encontré una reforma sancionada; hay proyectos en discusión, algunos con reglas específicas para menores (por ejemplo, restricciones a la publicidad personalizada y consentimiento de los representantes legales). Conviene seguir su estado.
+- **Transferencias internacionales:** la AAIP prevé cláusulas contractuales modelo para enviar datos a países sin legislación adecuada. Usar un proveedor de IA o de nube fuera de Argentina puede ser una transferencia internacional. No encontré confirmación del estatus de EE.UU.; lo debe verificar el abogado.
+- **Datos sensibles y niñez:** los datos sobre el bienestar emocional de un niño se tratan con el máximo cuidado. Además de la Ley 25.326, probablemente apliquen normas de protección de derechos de niñas, niños y adolescentes y de defensa del consumidor (incluido el derecho de arrepentimiento en compras online). No las verifiqué en esta sesión.
+- **Registro de la base de datos ante la AAIP:** verificar si corresponde.
+- **Recurso de ayuda para la familia:** la Línea 102 (niñez y adolescencia) existe a nivel nacional y Santa Fe la incorporó en 2021. **No pude confirmar que siga vigente con ese número en Rosario hoy; verificarla en el sitio oficial de la provincia antes de mostrarla en la app.**
+
+### IA recomendada para esta app
+
+**Principio:** la IA es una ayuda del profesional, no un interlocutor del niño. El niño nunca recibe texto generado libremente.
+
+| Uso | ¿IA? | Qué recomiendo | Quién ve el resultado |
+|---|---|---|---|
+| Borradores de actividades, cuentos y variantes por edad | Sí | Un modelo de texto de buena calidad (por ejemplo Claude Sonnet 5.5) | Solo el profesional, que aprueba antes de publicar |
+| Resumen de sesión y progreso para el panel | Sí | Modelo de texto, con instrucciones fijas | El profesional y lo que habilite a la familia |
+| Señales de alerta en lo que escribe o elige el niño | Sí, como segunda pasada | **Reglas primero** y un modelo chico y barato (por ejemplo Claude Haiku 5.5) como segunda lectura | Solo el profesional, siempre con revisión humana |
+| Ajuste de dificultad dentro del rango fijado | **No** | Reglas simples sobre el historial del propio niño | El profesional configura el rango |
+| Voz de las instrucciones | **No en tiempo real** | Audios pregrabados por el profesional o voz sintética generada de antemano y revisada | El niño, ya aprobado |
+| Chat libre con el niño | **No** | — | — |
+| Sugerir actividades al profesional | Mínima | Estadísticas simples; la IA solo explica la sugerencia | El profesional |
+
+**Datos que se envían al modelo:**
+
+- Nada que identifique al niño ni a la familia: sin nombre, contacto, escuela ni ubicación. Un identificador seudónimo y la banda de edad.
+- El texto del niño solo se envía para la pasada de seguridad, con consentimiento específico.
+- Con el proveedor, acordar por contrato: sin entrenamiento con los datos, retención mínima o nula (consultar las opciones de retención cero), y las cláusulas de transferencia internacional que indique el abogado.
+- Autohospedar un modelo de texto de calidad en un servidor Contabo sin GPU no es realista. Un clasificador chico de seguridad en CPU quizá sí; evaluarlo más adelante.
+
+**Controles:**
+
+- Versionar las instrucciones y registrar qué se generó, con qué versión y quién lo aprobó.
+- Un conjunto de pruebas de seguridad armado con el profesional (casos límite) que se corre en cada cambio de modelo o de instrucciones.
+- Sin agentes autónomos y sin recuperación sobre datos del niño: flujos fijos y deterministas, con aprobación humana.
+- Medir falsos positivos y falsos negativos de las alertas, y revisarlos con el profesional.
+
+**Plugins:** `llm-application-dev` (solo patrones de flujo fijo y evaluación, no agentes autónomos), `security-compliance`, `hr-legal-compliance`, `backend-api-security`.
+
+**Pendiente de definir:** quién responde si una alerta llega fuera de horario, si hay una línea de ayuda local confirmada para mostrar a la familia, y quién asesora legalmente (abogado de datos personales en Rosario).
