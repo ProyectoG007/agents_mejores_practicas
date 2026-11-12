@@ -405,3 +405,138 @@ Mapeo hecho a partir de la descripción de cada plugin (`plugins/*/.claude-plugi
 **Transversales para todo, sobre todo para llevarlo a Contabo:** `deployment-strategies`, `deployment-validation`, `cicd-automation`, `shell-scripting`, `observability-monitoring`, `security-scanning`, `unit-testing`, `tdd-workflows`, `documentation-generation`, `incident-response`. Para organizar el trabajo: `conductor` (seguimiento por fases) y `agent-teams` (varios agentes en paralelo).
 
 **Salvedad:** `cloud-infrastructure` y `kubernetes-operations` apuntan a AWS, Azure, GCP y Kubernetes. Contabo es un servidor VPS, así que solo sirven si se usa Terraform o Kubernetes allí; hay que confirmarlo al ver el servidor.
+
+---
+
+## 15. Plan paso a paso: base común (registro de eventos)
+
+**Qué es:** un único lugar donde cada sistema anota qué pasó (mostrado, abierto, saltado, terminado, respondido, comprado, error) y cómo terminó. Alimenta las 8 ideas. No cambia ningún comportamiento del producto.
+
+**Supuestos a confirmar al ver Contabo:** hay una base de datos relacional en el servidor (si no, PostgreSQL es el punto de partida razonable); los sistemas pueden enviar eventos por HTTP o escribirlos directo a la base.
+
+### Fase 0. Reconocimiento (solo lectura, sin cambiar nada)
+
+Plugins: `c4-architecture`, `cloud-infrastructure` (solo para leer), `observability-monitoring`.
+
+1. Inventariar qué corre en Contabo: servicios, contenedores, bases de datos, puertos, versiones.
+2. Medir recursos libres: CPU, memoria, disco, y backups existentes.
+3. Listar los sistemas que van a emitir eventos (agente, tienda, feed, app móvil, tablero, envíos) y en qué lenguaje están.
+4. Anotar cómo se despliega hoy y quién tiene acceso.
+5. Revisar qué datos personales ya se guardan y con qué consentimiento.
+
+**Listo cuando:** hay un mapa de una página del servidor y la lista de sistemas emisores.
+
+### Fase 1. Modelo de datos
+
+Plugins: `database-design`, `database-migrations`, `data-validation-suite`.
+
+1. Definir el esquema mínimo de un evento:
+
+| Campo | Contenido |
+|---|---|
+| `event_id` | Identificador único (también sirve para no duplicar) |
+| `occurred_at` | Fecha y hora con zona horaria |
+| `actor_id` | Identificador seudónimo de la persona (no el dato real) |
+| `actor_type` | Cliente, empleado, contacto |
+| `event_type` | Mostrado, abierto, saltado, terminado, respondido, comprado, error |
+| `object_type` y `object_id` | Qué fue: ítem, producto, reporte, mensaje, lección |
+| `channel` | Web, app, WhatsApp, email |
+| `context` | Solo lo necesario: tipo de conexión, hora local, modo silencio |
+| `outcome` | Resultado posterior, se completa al cerrar |
+| `schema_version` | Versión del esquema, para poder evolucionarlo |
+
+2. Tablas de apoyo: consentimientos por persona y canal, asignaciones a grupos de control, zona horaria por contacto.
+3. Partir la tabla de eventos por mes, con índices por persona y por fecha, para que siga rápida con volumen.
+4. Escribir las migraciones, con vuelta atrás, y probarlas en una copia antes de tocar la base real.
+
+**Listo cuando:** las migraciones corren y se deshacen limpias en una copia.
+
+### Fase 2. Entrada de eventos
+
+Plugins: `backend-development`, `api-scaffolding`, `python-development` o el lenguaje que use el sistema.
+
+1. Un único punto de entrada que recibe eventos de a lotes.
+2. Cada evento se valida contra el esquema; los inválidos se rechazan y se cuentan.
+3. Guardado con cola: la persona o el sistema nunca esperan al registro, y si el registro falla el producto sigue funcionando.
+4. Idempotencia: reenviar el mismo evento no lo duplica.
+5. Una pequeña librería para que cada sistema emita eventos con una línea de código.
+6. Autenticación por sistema emisor y límite de velocidad.
+
+**Listo cuando:** un sistema de prueba envía mil eventos y llegan exactos, sin duplicados, aun reiniciando el servicio a mitad.
+
+### Fase 3. Privacidad y consentimiento
+
+Plugins: `security-compliance`, `hr-legal-compliance`, `backend-api-security`.
+
+1. La persona se identifica con un seudónimo (hash con clave secreta guardada fuera de la base).
+2. No se guarda el texto de mensajes en el registro; las conversaciones siguen en su propio almacén y el registro solo guarda señales derivadas (por ejemplo, "pregunta repetida: sí").
+3. Los eventos se guardan solo si hay consentimiento cuando el canal lo exige.
+4. Retención definida: eventos crudos por un período acotado (propuesta: 13 meses) y agregados sin identificar, por más tiempo.
+5. Procedimiento para borrar o exportar los datos de una persona a pedido.
+6. Texto de política de privacidad actualizado.
+
+**Listo cuando:** se puede borrar a una persona de prueba y no queda rastro identificable.
+
+### Fase 4. Grupos de control
+
+Plugins: `backend-development`, `business-analytics`.
+
+1. Asignación estable: `hash(actor_id + nombre_del_experimento) mod 100`; la misma persona cae siempre en el mismo grupo.
+2. Cada asignación se registra, con el experimento y la fecha.
+3. Los porcentajes (control 10 a 20 %) se configuran por experimento sin tocar código.
+
+**Listo cuando:** una persona de prueba recibe siempre el mismo grupo y los porcentajes se cumplen en una muestra grande.
+
+### Fase 5. Primer informe
+
+Plugins: `business-analytics`, `data-engineering`, `database-cloud-optimization`.
+
+Consultas y un panel mínimo que respondan:
+
+- Eventos por día y por sistema.
+- Eventos rechazados y por qué.
+- Retraso entre que ocurre un evento y se guarda.
+- Tiempo de carga de reportes, por reporte (alimenta la idea 7).
+- Mensajes sin resolver, por canal (alimenta la idea 4).
+
+**Listo cuando:** el panel muestra datos reales de al menos un sistema durante una semana.
+
+### Fase 6. Despliegue y operación
+
+Plugins: `deployment-strategies`, `deployment-validation`, `cicd-automation`, `shell-scripting`, `observability-monitoring`, `incident-response`, `security-scanning`.
+
+1. Despliegue con revisión previa y vuelta atrás.
+2. Copias de seguridad probadas con una restauración real.
+3. Alertas: cola atascada, rechazos que suben, disco al 80 %, retraso de guardado alto.
+4. Tarea nocturna de retención (borra lo vencido y resume lo demás).
+5. Explorar el consumo de recursos para ver si el registro cabe junto a lo que ya corre.
+6. Documentar con `documentation-generation`: cómo emitir eventos, el esquema y cómo operarlo.
+
+**Listo cuando:** una restauración desde la copia funciona y las alertas disparan en una prueba controlada.
+
+### Pruebas en todas las fases
+
+Plugins: `unit-testing`, `tdd-workflows`. Pruebas del esquema, de la validación, de la idempotencia y de la carga. La librería de emisión se prueba con un servicio caído.
+
+### Organización del trabajo
+
+Plugins: `conductor` (seguir cada fase con su criterio de "listo") y `agent-teams` (fases 3 y 4 pueden avanzar en paralelo con la 2 una vez fijado el esquema).
+
+### Riesgos principales
+
+| Riesgo | Qué hacer |
+|---|---|
+| El registro frena el producto | Cola y guardado asíncrono; el producto nunca espera |
+| Se junta más de lo permitido | Solo el campo que hace falta; sin texto de mensajes; retención corta |
+| El servidor se queda sin disco o memoria | Medir en Fase 0 y 5; particionar por mes; archivar lo viejo |
+| El esquema queda corto | `schema_version` y migraciones con vuelta atrás |
+| Eventos duplicados o perdidos | Idempotencia y conteo de rechazados |
+
+### Primera semana, versión mínima
+
+1. Fase 0 completa.
+2. Esquema y migración de la tabla de eventos.
+3. Entrada de eventos con validación.
+4. Un solo sistema emisor, el más simple, y el informe de eventos por día.
+
+Con esto ya se ve si el registro funciona antes de invertir en el resto.
