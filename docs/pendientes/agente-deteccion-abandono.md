@@ -1,7 +1,7 @@
 # Pendiente: agente que detecta frustración y abandono
 
 **Estado:** diseño hecho, implementación en espera.
-**Bloqueado por:** acceso completo al sistema (incluido "contab").
+**Bloqueado por:** acceso completo al servidor Contabo (internamente "contab"), donde corre el sistema.
 **Fecha de la nota:** 2026-11-12
 
 ## Origen
@@ -101,7 +101,9 @@ Si el usuario se fue sin resolver y dio consentimiento: un único mensaje, a la 
 - [ ] Por qué canal conversa hoy el agente y con qué está construido.
 - [ ] Dónde se guardan hoy las conversaciones y si hay historial para calibrar umbrales.
 - [ ] Si existe un circuito de derivación a una persona y quién atiende.
-- [ ] Qué datos de "contab" necesita el agente para resolver (saldos, facturas, estados) y con qué permisos.
+- [ ] Qué corre en el servidor Contabo: servicios, contenedores, bases de datos y recursos libres (CPU, memoria, disco).
+- [ ] Si el observador y el registro de turnos pueden alojarse en ese mismo servidor.
+- [ ] Cómo se despliega hoy y cómo se accede (SSH, panel, CI).
 - [ ] Qué consentimiento hay para mensajes de seguimiento.
 - [ ] Volumen de conversaciones por día, para estimar costo del observador.
 
