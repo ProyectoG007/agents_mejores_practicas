@@ -1,4 +1,4 @@
-# Plan: 8 ideas de producto inspiradas en el video sobre el algoritmo de TikTok
+# Plan: 9 ideas de producto inspiradas en videos sobre el diseño de apps populares
 
 **Estado:** diseños hechos, implementación en espera.
 **Bloqueado por:** acceso completo al servidor Contabo ("contab"), donde corren los sistemas. La idea 8 se puede empezar antes.
@@ -6,7 +6,11 @@
 
 ## 1. Origen
 
-Video de divulgación (1:29, vertical) que afirma haber hecho ingeniería inversa de la app de TikTok. Transcripción completa obtenida en la sesión. **Nada de esto está verificado**; se usa como inspiración, no como documentación oficial.
+Dos videos de divulgación del mismo creador. El primero (1:29, vertical) afirma haber hecho ingeniería inversa de la app de TikTok (ideas 1 a 8). El segundo (1:15) hace lo mismo con Candy Crush (idea 9, sección 16).
+
+### Video 1: TikTok
+
+Transcripción completa obtenida en la sesión. Transcripción completa obtenida en la sesión. **Nada de esto está verificado**; se usa como inspiración, no como documentación oficial.
 
 Lo que afirma el video:
 
@@ -60,6 +64,7 @@ Con eso se alimentan los 8 diseños. Es el primer entregable, sin cambiar ningú
 | 4.º | 5. Envío en hora óptima | Medio | No necesita IA para empezar; resultado medible rápido |
 | 5.º | 6. App móvil adaptativa | Medio | Depende del tipo de app |
 | 6.º | 1, 2 y 3 | Medio-alto | Dependen de que exista el producto correspondiente y su historial |
+| 7.º | 9. Ayuda y dificultad adaptativa | Medio-alto | Necesita la base común andando para calcular la tabla de referencia. Con niños, ver sección 17 |
 
 Es una recomendación sin haber visto el sistema; se ajusta cuando haya acceso.
 
@@ -401,6 +406,7 @@ Mapeo hecho a partir de la descripción de cada plugin (`plugins/*/.claude-plugi
 | 6. App móvil | `frontend-mobile-development`, `multi-platform-apps`, `application-performance` | `api-scaffolding`, `frontend-mobile-security`, `observability-monitoring` |
 | 7. Tablero interno | `database-cloud-optimization`, `application-performance`, `data-engineering` | `backend-development`, `observability-monitoring`, `business-analytics` |
 | 8. Videos propios | `content-marketing` | `business-analytics`; la producción y publicación usan herramientas externas al repo (HyperFrames, Canva, Postiz) |
+| 9. Ayuda y dificultad adaptativa | `backend-development`, `data-engineering`, `frontend-mobile-development`, `ui-design` | `business-analytics`, `machine-learning-ops` (más adelante), `llm-application-dev` (pistas generadas) |
 
 **Transversales para todo, sobre todo para llevarlo a Contabo:** `deployment-strategies`, `deployment-validation`, `cicd-automation`, `shell-scripting`, `observability-monitoring`, `security-scanning`, `unit-testing`, `tdd-workflows`, `documentation-generation`, `incident-response`. Para organizar el trabajo: `conductor` (seguimiento por fases) y `agent-teams` (varios agentes en paralelo).
 
@@ -410,7 +416,7 @@ Mapeo hecho a partir de la descripción de cada plugin (`plugins/*/.claude-plugi
 
 ## 15. Plan paso a paso: base común (registro de eventos)
 
-**Qué es:** un único lugar donde cada sistema anota qué pasó (mostrado, abierto, saltado, terminado, respondido, comprado, error) y cómo terminó. Alimenta las 8 ideas. No cambia ningún comportamiento del producto.
+**Qué es:** un único lugar donde cada sistema anota qué pasó (mostrado, abierto, saltado, terminado, respondido, comprado, error) y cómo terminó. Alimenta las 9 ideas. No cambia ningún comportamiento del producto.
 
 **Revisión técnica:** esta versión incorpora la revisión hecha con el agente `backend-architect` del repo (corrido como agente genérico con sus instrucciones, porque el plugin no está instalado). Cambios principales respecto de la primera versión: la clave de idempotencia incluye la columna de partición, los resultados son eventos nuevos en vez de una actualización, el seudónimo de la persona es un UUID aleatorio con tabla de mapeo, la entrada no usa broker al inicio, y el consentimiento es un historial. El esquema SQL se verificó solo en su sintaxis (análisis con `pglast`); no se ejecutó contra una base real.
 
@@ -680,3 +686,140 @@ Plugins: `conductor` (seguir cada fase con su criterio de "listo") y `agent-team
 4. Un solo sistema emisor, el más simple, y el informe de eventos por día y de rechazos.
 
 Con esto ya se ve si el registro funciona antes de invertir en el resto.
+
+---
+
+## 16. Diseño 9: ayuda y dificultad adaptativa
+
+**Origen:** segundo video del mismo creador, sobre Candy Crush (1:15). Mismas reservas que en la sección 1: lo que afirma no está verificado.
+
+Lo que afirma el video:
+
+- El juego calcula un número, la "pass proximity" (cercanía a pasar el nivel), tras cada movimiento, a partir de una tabla de unas 600.000 filas descargada al teléfono (rango inferior y superior esperado por nivel y movimiento).
+- Si la persona va atrasada, una acción `MakeEasierAction` cambia las probabilidades a su favor (hasta 56 caramelos extra en el último movimiento); si va demasiado bien, `MakeHarderAction` endurece el juego.
+- Al perder hay dos salidas, ver un anuncio o pagar, y ambas dependen de esa cercanía: con el anuncio, a mayor cercanía menor recompensa; con el pago, un modelo usa la cercanía, la racha de derrotas, las vidas restantes y la posición en la carrera semanal para decidir cuánto dar.
+- La configuración llega asignada por grupo, con un interruptor de activación y umbrales (`is_treatment_active`).
+
+**Qué se toma y qué no.** La idea transferible es medir el progreso hacia un objetivo en cada paso y ajustar la ayuda. No se copia el ajuste oculto de probabilidades, ni el precio o la recompensa según la frustración (ver límites).
+
+**Objetivo:** que la persona logre lo que vino a hacer (resolver una consulta, completar una lección, terminar un formulario o una compra) con la ayuda justa, de forma visible y sin trampas.
+
+```
+Tarea con pasos ──► Puntaje de progreso por paso ──► Estado: adelantado / en rango / atrasado
+                              ▲                                   │
+              Tabla de referencia (de datos reales)               ▼
+                                                    Ayuda visible o desafío opcional
+                                                                  │
+                                          Registro de eventos ◄───┘ ──► medición con control
+```
+
+### Piezas
+
+1. **Tareas con pasos definidos.** Cada objetivo se descompone en pasos medibles (por ejemplo: datos cargados, opción elegida, confirmación).
+2. **Tabla de referencia.** Por tarea y paso, el rango esperado de tiempo y errores, calculado con datos históricos reales (por ejemplo, percentiles 25 y 75). Es la versión chica y honesta de la tabla de 600.000 filas. Se calcula en el servidor y se puede enviar al dispositivo (idea 6) para consultarla sin conexión.
+3. **Puntaje de progreso.** En cada paso se compara a la persona con el rango de la tabla y se clasifica: adelantada, en rango o atrasada.
+4. **Ayuda visible según el estado:**
+
+| Estado | Qué ofrece |
+|---|---|
+| Atrasada o trabada | Una pista, un paso más chico, un ejemplo resuelto o un camino alternativo, siempre diciendo que es una ayuda |
+| En rango | No interrumpe |
+| Adelantada | Ofrece un desafío mayor como opción; la persona elige |
+
+5. **Ayuda pagada, solo si existe.** Con precio fijo, igual para todas las personas, y con la opción gratuita siempre visible.
+6. **Configuración por grupo.** Umbrales e interruptor de activación guardados en la tabla `experiment` de la base común, con grupo de control.
+7. **Registro.** Eventos nuevos sobre la base común: `progress.step_completed`, `help.offered`, `help.accepted`, `help.declined`, enlazados con `correlation_id` a la tarea.
+
+### Cómo medir
+
+Con grupo de control, contra el comportamiento actual:
+
+- Finalización de la tarea y tiempo hasta completarla.
+- Uso de ayuda y si la ayuda ofrecida fue aceptada.
+- Abandono por paso.
+- Satisfacción declarada.
+- **No** se usa como éxito el ingreso por ayuda pagada en momentos de frustración.
+
+### Límites
+
+- Sin cambios ocultos en las probabilidades ni en el resultado: toda ayuda se muestra como ayuda.
+- Sin precio ni recompensa que dependan de la frustración, la racha de derrotas o la cercanía a abandonar.
+- Sin menor recompensa para quien más se esforzó.
+- La salida gratuita y la opción de parar siempre disponibles.
+- Si el público incluye menores, aplica además la sección 17.
+
+### Orden de construcción
+
+1. Definir los objetivos y sus pasos en cada producto.
+2. Calcular la tabla de referencia con datos históricos (requiere la base común andando).
+3. Puntaje de progreso y estados, solo registrando, sin cambiar nada.
+4. Ayudas visibles para el estado "atrasada".
+5. Desafío opcional para el estado "adelantada".
+6. Experimento con control; ayuda pagada solo si el negocio la necesita.
+
+### Plugins
+
+Principales: `backend-development`, `data-engineering`, `frontend-mobile-development`, `ui-design`. Apoyo: `business-analytics`, `machine-learning-ops` (más adelante) y `llm-application-dev` si las pistas se generan con un modelo.
+
+### Qué revisar cuando haya acceso
+
+- [ ] Qué tareas con pasos existen hoy en cada producto y si hay datos de tiempos y errores por paso.
+- [ ] Si hay una oferta de ayuda pagada y cómo se fija su precio hoy.
+- [ ] Qué público usa cada producto (adultos, menores).
+
+---
+
+## 17. Caso: app de coaching ontológico para niños
+
+**Criterio general:** con niños, la regla es **bienestar antes que métricas**. Las ideas de este plan sirven en parte, y varias no deben usarse. Este apartado es una orientación técnica, no asesoramiento legal ni clínico: ambos requieren revisión de profesionales.
+
+### Qué se puede tomar
+
+| Idea | Cómo aplica |
+|---|---|
+| 3 y 9: ayuda adaptativa | Ajustar el desafío de cada actividad al nivel del niño, de forma visible y con pistas amables. Es la que mejor encaja |
+| Registro de eventos (base común) | Solo lo mínimo; sin identificar al niño más de lo necesario; retención más corta que para adultos |
+| 4: agente | Reconvertido: no para retener, sino para **detectar señales de malestar y derivar a un adulto o profesional** |
+| 7: tablero | Para el lado adulto (coach, familia, docente): ver el progreso y las señales, no para el niño |
+| 6: app móvil | Mute, conexión y ahorro de datos sí; todo lo demás, no |
+
+### Qué no se debe usar con niños
+
+- **Retención y "enganche":** rachas, recompensas que presionan, notificaciones para que vuelva, lote de rescate para que no se vaya.
+- **Monetización dirigida al niño:** ninguna oferta de pago al niño; las compras las decide un adulto.
+- **Idea 5 (envío por email y WhatsApp):** solo a madres, padres o tutores, nunca al niño.
+- **Idea 8 (videos):** dirigidos a adultos y profesionales, no a niños.
+- **Sensores y contexto del dispositivo** (movimiento, somnolencia): innecesarios y de alto costo en privacidad.
+- **Perfilado:** nada de armar un perfil emocional del niño con fines comerciales.
+
+### Datos y consentimiento (a validar con un abogado)
+
+- Consentimiento verificable de madre, padre o tutor, no solo un botón de aceptar.
+- Leyes de protección de datos y de menores del país (en EE.UU. COPPA; en la UE, el RGPD con edad mínima de consentimiento digital; en Argentina, la ley de protección de datos personales y la normativa sobre niñez). Confirmar cuáles aplican.
+- Recoger lo mínimo, no usar los datos para publicidad, y permitir que el adulto vea, exporte y borre todo.
+- La retención y el borrado de la base común (sección 15) se endurecen: períodos más cortos, borrado a pedido que alcance a las copias, y sin texto libre del niño en el registro.
+
+### Seguridad del contenido
+
+- Contenido preaprobado por profesionales; sin respuestas libres de un modelo sin revisión y filtros antes de cualquier texto que vea el niño.
+- Sin chat abierto con desconocidos ni con otros niños.
+- **Protocolo ante señales de riesgo** (tristeza intensa, daño, abuso): la app no resuelve; avisa a un adulto responsable y orienta a un profesional o a líneas de ayuda locales.
+- La app no diagnostica ni reemplaza una terapia, y lo dice claramente.
+
+### Alcance del coaching ontológico
+
+El coaching ontológico es una práctica de acompañamiento centrada en el lenguaje, las emociones y el cuerpo. No es psicoterapia y no conviene presentarlo como tal. Para una versión infantil, el contenido y las actividades deberían revisarlos un profesional con formación en infancia (psicología o psicopedagogía), y hay que definir qué casos la app no cubre.
+
+### Diseño de producto sugerido
+
+- **Dos perfiles:** el del niño (actividades) y el del adulto (panel, ajustes, consentimiento, compras).
+- Sesiones cortas con pausas, límites de tiempo definidos por el adulto, sin rachas.
+- Éxito medido por bienestar y aprendizaje (por ejemplo, autoevaluación guiada, observación del adulto), no por tiempo de uso.
+
+### Qué revisar antes de empezar
+
+- [ ] Rango de edad del público.
+- [ ] Quién usa, quién decide y quién paga (familia, colegio, coach).
+- [ ] Qué hace la app hoy y cómo guarda los datos.
+- [ ] Qué profesionales validan el contenido y el protocolo de riesgo.
+- [ ] Qué leyes aplican y quién las revisa.
