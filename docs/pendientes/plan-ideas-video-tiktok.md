@@ -41,7 +41,7 @@ Lo que afirma el video:
 | Sobre qué | Ítem, reporte, producto, mensaje |
 | Cuándo | Fecha y hora con zona horaria del contacto |
 | Contexto | Canal, dispositivo, conexión, hora local (solo lo necesario) |
-| Resultado | Lo que pasó después (resuelto, abandonó, convirtió) |
+| Resultado | Lo que pasó después (resuelto, abandonó, convirtió), como un evento nuevo enlazado al original |
 
 Con eso se alimentan los 8 diseños. Es el primer entregable, sin cambiar ningún comportamiento todavía.
 
@@ -412,55 +412,171 @@ Mapeo hecho a partir de la descripción de cada plugin (`plugins/*/.claude-plugi
 
 **Qué es:** un único lugar donde cada sistema anota qué pasó (mostrado, abierto, saltado, terminado, respondido, comprado, error) y cómo terminó. Alimenta las 8 ideas. No cambia ningún comportamiento del producto.
 
-**Supuestos a confirmar al ver Contabo:** hay una base de datos relacional en el servidor (si no, PostgreSQL es el punto de partida razonable); los sistemas pueden enviar eventos por HTTP o escribirlos directo a la base.
+**Revisión técnica:** esta versión incorpora la revisión hecha con el agente `backend-architect` del repo (corrido como agente genérico con sus instrucciones, porque el plugin no está instalado). Cambios principales respecto de la primera versión: la clave de idempotencia incluye la columna de partición, los resultados son eventos nuevos en vez de una actualización, el seudónimo de la persona es un UUID aleatorio con tabla de mapeo, la entrada no usa broker al inicio, y el consentimiento es un historial. El esquema SQL se verificó solo en su sintaxis (análisis con `pglast`); no se ejecutó contra una base real.
+
+**Supuestos a confirmar al ver Contabo:** hay una base PostgreSQL 14 o superior en el servidor (si no, es el punto de partida razonable); los sistemas pueden enviar eventos por HTTP.
+
+### Reglas de diseño (valen para todas las fases)
+
+1. **Solo se agrega, nunca se actualiza.** Un resultado posterior ("resuelto", "convirtió") es un evento nuevo que apunta al original con `correlation_id`.
+2. **El emisor fija `event_id` (UUIDv7) y `occurred_at` una sola vez** y los reenvía idénticos en cada reintento. Así la clave `(event_id, occurred_at)` evita duplicados.
+3. **El `actor_id` es un UUID aleatorio**, no un hash. El hash con clave solo sirve para ubicar a la persona en una tabla de mapeo.
+4. **El producto nunca espera al registro.** Si el registro falla, el sistema sigue funcionando.
+5. **`context` tiene claves permitidas por tipo de evento**, con tope de tamaño, sin IP ni user-agent ni texto de mensajes.
+6. **Los informes analíticos usan `occurred_at`; los operativos (retraso, rechazos) usan `received_at`.**
 
 ### Fase 0. Reconocimiento (solo lectura, sin cambiar nada)
 
 Plugins: `c4-architecture`, `cloud-infrastructure` (solo para leer), `observability-monitoring`.
 
 1. Inventariar qué corre en Contabo: servicios, contenedores, bases de datos, puertos, versiones.
-2. Medir recursos libres: CPU, memoria, disco, y backups existentes.
-3. Listar los sistemas que van a emitir eventos (agente, tienda, feed, app móvil, tablero, envíos) y en qué lenguaje están.
-4. Anotar cómo se despliega hoy y quién tiene acceso.
-5. Revisar qué datos personales ya se guardan y con qué consentimiento.
+2. Medir recursos libres: CPU, memoria, tipo de disco, espacio libre, límite de conexiones.
+3. Anotar si la base es compartida con otros sistemas y qué extensiones tiene (`pg_partman`, `pg_cron`, `pgcrypto`).
+4. Listar los sistemas que van a emitir eventos (agente, tienda, feed, app móvil, tablero, envíos), su lenguaje y qué identificador real tiene cada persona en cada uno (email, teléfono, id interno).
+5. Estimar el volumen de eventos por día por sistema.
+6. Ver cómo se hacen hoy los backups: herramienta, frecuencia, retención, dónde se guardan.
+7. Anotar cómo se despliega hoy, quién tiene acceso y dónde podría guardarse la clave del hash fuera de la base.
+8. Revisar qué datos personales ya se guardan, con qué consentimiento y si ya existe un almacén de consentimientos o un procedimiento de borrado.
 
-**Listo cuando:** hay un mapa de una página del servidor y la lista de sistemas emisores.
+**Listo cuando:** hay un mapa de una página del servidor y la lista de sistemas emisores con su volumen estimado.
 
-### Fase 1. Modelo de datos
+### Fase 1. Modelo de datos y decisión de seudonimización
 
 Plugins: `database-design`, `database-migrations`, `data-validation-suite`.
 
-1. Definir el esquema mínimo de un evento:
-
-| Campo | Contenido |
-|---|---|
-| `event_id` | Identificador único (también sirve para no duplicar) |
-| `occurred_at` | Fecha y hora con zona horaria |
-| `actor_id` | Identificador seudónimo de la persona (no el dato real) |
-| `actor_type` | Cliente, empleado, contacto |
-| `event_type` | Mostrado, abierto, saltado, terminado, respondido, comprado, error |
-| `object_type` y `object_id` | Qué fue: ítem, producto, reporte, mensaje, lección |
-| `channel` | Web, app, WhatsApp, email |
-| `context` | Solo lo necesario: tipo de conexión, hora local, modo silencio |
-| `outcome` | Resultado posterior, se completa al cerrar |
-| `schema_version` | Versión del esquema, para poder evolucionarlo |
-
-2. Tablas de apoyo: consentimientos por persona y canal, asignaciones a grupos de control, zona horaria por contacto.
-3. Partir la tabla de eventos por mes, con índices por persona y por fecha, para que siga rápida con volumen.
+1. Decidir la seudonimización aquí, porque las fases 3 y 4 dependen de ella (ver reglas 3 y el esquema).
+2. Crear el esquema de abajo. Los nombres de esquema y de rol son propuestas.
+3. Si la Fase 0 muestra un volumen muy bajo, evaluar una tabla simple en lugar de particionada, con índice por `(actor_id, occurred_at)` y borrado por lotes. Es una decisión de datos, no de gusto.
 4. Escribir las migraciones, con vuelta atrás, y probarlas en una copia antes de tocar la base real.
+5. Crear las particiones por adelantado con una tarea programada (`pg_partman` si está, o una función propia).
 
-**Listo cuando:** las migraciones corren y se deshacen limpias en una copia.
+**Esquema propuesto (PostgreSQL 14 o superior, sin extensiones):**
+
+```sql
+-- Esquemas: la identidad real queda aparte, con permisos restringidos.
+CREATE SCHEMA IF NOT EXISTS identity;
+CREATE SCHEMA IF NOT EXISTS tracking;
+
+-- 1) Persona -> seudónimo aleatorio. Borrar la fila = desvincular.
+CREATE TABLE identity.actor (
+  actor_id     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  ref_hmac     bytea NOT NULL,        -- HMAC(clave_vN, id_real); la clave vive fuera de la base
+  key_version  smallint NOT NULL,
+  timezone     text,                  -- zona horaria del contacto (IANA)
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (key_version, ref_hmac)
+);
+
+-- 2) Registro de borrados, solo con el id aleatorio. Se re-aplica tras restaurar un backup.
+CREATE TABLE identity.erasure_log (
+  actor_id      uuid PRIMARY KEY,
+  requested_at  timestamptz NOT NULL,
+  completed_at  timestamptz
+);
+
+-- 3) Consentimiento: historial append-only (alta y baja).
+CREATE TABLE tracking.consent_event (
+  consent_id     bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  actor_id       uuid NOT NULL,
+  purpose        text NOT NULL,             -- p. ej. 'analytics', 'whatsapp_marketing'
+  channel        text NOT NULL CHECK (channel IN ('web','app','whatsapp','email')),
+  granted        boolean NOT NULL,
+  policy_version text NOT NULL,
+  source         text NOT NULL,             -- formulario, soporte, importación
+  occurred_at    timestamptz NOT NULL,
+  recorded_at    timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX consent_event_lookup
+  ON tracking.consent_event (actor_id, purpose, channel, occurred_at DESC);
+
+-- Estado vigente = último registro por (actor, purpose, channel).
+CREATE VIEW tracking.consent_current AS
+SELECT DISTINCT ON (actor_id, purpose, channel)
+       actor_id, purpose, channel, granted, policy_version, occurred_at
+FROM tracking.consent_event
+ORDER BY actor_id, purpose, channel, occurred_at DESC;
+
+-- 4) Registro de eventos: solo se agrega, nunca se actualiza.
+CREATE TABLE tracking.event (
+  event_id        uuid        NOT NULL,   -- lo genera el emisor (UUIDv7) y lo reenvía igual
+  occurred_at     timestamptz NOT NULL,   -- lo fija el emisor al crear el evento
+  received_at     timestamptz NOT NULL DEFAULT now(),
+  source_system   text        NOT NULL,
+  schema_version  smallint    NOT NULL,
+  actor_id        uuid        NOT NULL,   -- sin FK: el borrado no debe depender del orden
+  actor_type      text        NOT NULL CHECK (actor_type IN ('customer','employee','contact')),
+  event_type      text        NOT NULL,   -- validado contra lista en la entrada
+  object_type     text,
+  object_id       text,
+  channel         text        NOT NULL CHECK (channel IN ('web','app','whatsapp','email')),
+  correlation_id  uuid,                   -- evento de origen (para resultados)
+  context         jsonb       NOT NULL DEFAULT '{}'
+                  CHECK (jsonb_typeof(context) = 'object' AND pg_column_size(context) <= 2048),
+  PRIMARY KEY (event_id, occurred_at)     -- la clave de partición debe estar en la PK
+) PARTITION BY RANGE (occurred_at);
+
+-- Red de seguridad: alertar si tiene filas.
+CREATE TABLE tracking.event_default PARTITION OF tracking.event DEFAULT;
+-- Ejemplo de partición mensual (crearlas por adelantado con una tarea programada):
+CREATE TABLE tracking.event_2026_11 PARTITION OF tracking.event
+  FOR VALUES FROM ('2026-11-01') TO ('2026-12-01');
+
+CREATE INDEX event_actor_time  ON tracking.event (actor_id, occurred_at);
+CREATE INDEX event_type_time   ON tracking.event (event_type, occurred_at);
+CREATE INDEX event_correlation ON tracking.event (correlation_id) WHERE correlation_id IS NOT NULL;
+
+-- 5) Rechazos: solo conteo y motivo, nunca el contenido.
+CREATE TABLE tracking.ingest_reject (
+  rejected_at   timestamptz NOT NULL DEFAULT now(),
+  source_system text NOT NULL,
+  reason        text NOT NULL,
+  batch_size    int
+);
+
+-- 6) Experimentos y asignaciones.
+CREATE TABLE tracking.experiment (
+  experiment_key text PRIMARY KEY,
+  salt           text NOT NULL,
+  control_bp     smallint NOT NULL CHECK (control_bp BETWEEN 0 AND 10000), -- 1000 = 10 %
+  status         text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','running','stopped')),
+  started_at     timestamptz
+);
+
+CREATE TABLE tracking.experiment_assignment (
+  experiment_key text NOT NULL REFERENCES tracking.experiment,
+  actor_id       uuid NOT NULL,
+  bucket         smallint NOT NULL CHECK (bucket BETWEEN 0 AND 9999), -- hash(salt||actor_id) mod 10000, calculado en la app
+  arm            text NOT NULL CHECK (arm IN ('control','treatment')),
+  assigned_at    timestamptz NOT NULL DEFAULT now(),                  -- primera exposición
+  PRIMARY KEY (experiment_key, actor_id)
+);
+```
+
+Inserción idempotente desde la entrada:
+
+```sql
+INSERT INTO tracking.event (...) VALUES (...)
+ON CONFLICT (event_id, occurred_at) DO NOTHING;
+```
+
+Borrado a pedido, en este orden: 1) anotar en `identity.erasure_log`; 2) borrar de `tracking.event`, `tracking.experiment_assignment` y `tracking.consent_event` por `actor_id` (o conservar solo la prueba mínima que exija la ley); 3) borrar la fila de `identity.actor`.
+
+Permisos sugeridos: el servicio de entrada inserta en `tracking.*` y lee y escribe `identity.actor`; el rol de informes solo lee `tracking.*`, sin acceso a `identity`.
+
+**Listo cuando:** las migraciones corren y se deshacen limpias en una copia, y una inserción repetida del mismo evento no duplica nada.
 
 ### Fase 2. Entrada de eventos
 
 Plugins: `backend-development`, `api-scaffolding`, `python-development` o el lenguaje que use el sistema.
 
-1. Un único punto de entrada que recibe eventos de a lotes.
-2. Cada evento se valida contra el esquema; los inválidos se rechazan y se cuentan.
-3. Guardado con cola: la persona o el sistema nunca esperan al registro, y si el registro falla el producto sigue funcionando.
-4. Idempotencia: reenviar el mismo evento no lo duplica.
-5. Una pequeña librería para que cada sistema emita eventos con una línea de código.
-6. Autenticación por sistema emisor y límite de velocidad.
+1. Un único punto de entrada que recibe eventos de a lotes, con tope (por ejemplo 500 eventos o 1 MB por lote).
+2. Cada evento se valida contra el esquema, la lista de tipos y las claves permitidas de `context`.
+3. **Sin broker al inicio:** el endpoint hace `INSERT ... ON CONFLICT DO NOTHING` en una transacción corta y confirma recién después del commit. La durabilidad es la propia tabla. Un broker o una tabla de preparación se evalúan solo si el volumen lo pide.
+4. Respuesta por evento: `accepted`, `duplicate` o `rejected(motivo)`. Los rechazos solo guardan conteo y motivo, no el contenido.
+5. Se rechazan eventos con `occurred_at` en el futuro o con más de 7 días de atraso. Los que llegan atrasados dentro de ese margen se aceptan; la partición `DEFAULT` queda como red de seguridad y dispara alerta si recibe filas.
+6. Antes de guardar, se consulta el consentimiento vigente (con caché en memoria) y se descartan los eventos de una persona con baja anterior a su `occurred_at`.
+7. Librería para los emisores: asíncrona, con buffer acotado, tiempo de espera corto, reintentos con espera creciente y aleatoriedad, y descarte documentado si el buffer se llena. Así el producto no espera.
+8. Autenticación por sistema emisor, TLS si no es por localhost, y límite de velocidad.
 
 **Listo cuando:** un sistema de prueba envía mil eventos y llegan exactos, sin duplicados, aun reiniciando el servicio a mitad.
 
@@ -468,36 +584,44 @@ Plugins: `backend-development`, `api-scaffolding`, `python-development` o el len
 
 Plugins: `security-compliance`, `hr-legal-compliance`, `backend-api-security`.
 
-1. La persona se identifica con un seudónimo (hash con clave secreta guardada fuera de la base).
-2. No se guarda el texto de mensajes en el registro; las conversaciones siguen en su propio almacén y el registro solo guarda señales derivadas (por ejemplo, "pregunta repetida: sí").
-3. Los eventos se guardan solo si hay consentimiento cuando el canal lo exige.
-4. Retención definida: eventos crudos por un período acotado (propuesta: 13 meses) y agregados sin identificar, por más tiempo.
-5. Procedimiento para borrar o exportar los datos de una persona a pedido.
-6. Texto de política de privacidad actualizado.
+1. La persona se ubica con `HMAC(clave_vN, id_real)` en `identity.actor`; los eventos usan solo el `actor_id` aleatorio. La clave vive fuera de la base y tiene versión: rotarla es agregar una versión y re-hashear de forma perezosa, sin tocar los eventos.
+2. No se guarda el texto de los mensajes; las conversaciones siguen en su propio almacén y el registro solo guarda señales derivadas (por ejemplo, "pregunta repetida: sí").
+3. El consentimiento es un historial con finalidad, canal, versión de la política y fuente, no un solo estado. Una baja dispara el borrado de arriba.
+4. Retención: eventos crudos por un período acotado (propuesta: 13 meses) y agregados sin identificar por más tiempo.
+5. Copias de seguridad: no se pueden editar. Definir una retención corta y documentada (propuesta: 30 días), declararla en la política de privacidad y **re-aplicar `identity.erasure_log` después de cualquier restauración**, antes de volver a exponer la base.
+6. Procedimiento para exportar los datos de una persona a pedido.
+7. Texto de política de privacidad actualizado.
+8. Si esto alcanza legalmente (jurisdicción, ley local) lo decide un abogado, no el equipo técnico.
 
-**Listo cuando:** se puede borrar a una persona de prueba y no queda rastro identificable.
+**Listo cuando:** una persona de prueba no aparece en ninguna tabla viva después del borrado, y el registro de borrados se re-aplica tras una restauración de prueba. No se afirma "no queda rastro" mientras existan copias de seguridad con retención.
 
 ### Fase 4. Grupos de control
 
 Plugins: `backend-development`, `business-analytics`.
 
-1. Asignación estable: `hash(actor_id + nombre_del_experimento) mod 100`; la misma persona cae siempre en el mismo grupo.
-2. Cada asignación se registra, con el experimento y la fecha.
-3. Los porcentajes (control 10 a 20 %) se configuran por experimento sin tocar código.
+1. Asignación estable por balde en puntos básicos: `bucket = hash(sal_del_experimento || actor_id) mod 10000`. El grupo de control es `bucket < control_bp` (1.000 = 10 %).
+2. Durante un experimento en curso, los rangos solo pueden crecer, nunca achicarse, para que nadie cambie de grupo.
+3. La asignación se registra en la **primera exposición** (no a todos), con `bucket` y `arm`.
+4. Los porcentajes se configuran en la tabla `experiment` sin tocar código.
+5. El informe incluye una prueba de desbalance: el control real debe coincidir con el configurado; si no, hay un error de asignación.
 
-**Listo cuando:** una persona de prueba recibe siempre el mismo grupo y los porcentajes se cumplen en una muestra grande.
+**Listo cuando:** una persona de prueba cae siempre en el mismo grupo y el control real de una muestra grande coincide con el configurado.
 
 ### Fase 5. Primer informe
 
 Plugins: `business-analytics`, `data-engineering`, `database-cloud-optimization`.
 
-Consultas y un panel mínimo que respondan:
+Consultas y un panel mínimo, sobre agregados diarios y no sobre la tabla cruda:
 
 - Eventos por día y por sistema.
 - Eventos rechazados y por qué.
-- Retraso entre que ocurre un evento y se guarda.
+- Retraso entre `occurred_at` y `received_at`.
+- Filas en la partición `DEFAULT` (debería ser cero).
 - Tiempo de carga de reportes, por reporte (alimenta la idea 7).
 - Mensajes sin resolver, por canal (alimenta la idea 4).
+- Desbalance de los grupos de control.
+
+Los agregados se recalculan sobre una ventana de 7 días, por los eventos atrasados. El rol de informes tiene `statement_timeout`.
 
 **Listo cuando:** el panel muestra datos reales de al menos un sistema durante una semana.
 
@@ -506,37 +630,53 @@ Consultas y un panel mínimo que respondan:
 Plugins: `deployment-strategies`, `deployment-validation`, `cicd-automation`, `shell-scripting`, `observability-monitoring`, `incident-response`, `security-scanning`.
 
 1. Despliegue con revisión previa y vuelta atrás.
-2. Copias de seguridad probadas con una restauración real.
-3. Alertas: cola atascada, rechazos que suben, disco al 80 %, retraso de guardado alto.
-4. Tarea nocturna de retención (borra lo vencido y resume lo demás).
-5. Explorar el consumo de recursos para ver si el registro cabe junto a lo que ya corre.
-6. Documentar con `documentation-generation`: cómo emitir eventos, el esquema y cómo operarlo.
+2. Pool de conexiones acotado para el servicio de entrada y un rol de base con límite de conexiones.
+3. Copias de seguridad probadas con una restauración real, que incluya re-aplicar el registro de borrados.
+4. Alertas: partición del mes siguiente ausente, filas en `DEFAULT`, rechazos que suben, disco al 80 %, retraso de guardado alto.
+5. Tarea nocturna de retención: elimina particiones vencidas con `DROP`/`DETACH` y resume lo demás.
+6. Medir el consumo de recursos para ver si el registro cabe junto a lo que ya corre; si la base está compartida y compite, evaluar una instancia separada.
+7. Documentar con `documentation-generation`: cómo emitir eventos, el esquema y cómo operarlo.
 
-**Listo cuando:** una restauración desde la copia funciona y las alertas disparan en una prueba controlada.
+**Listo cuando:** una restauración desde la copia funciona (con el registro de borrados re-aplicado) y las alertas disparan en una prueba controlada.
 
 ### Pruebas en todas las fases
 
-Plugins: `unit-testing`, `tdd-workflows`. Pruebas del esquema, de la validación, de la idempotencia y de la carga. La librería de emisión se prueba con un servicio caído.
+Plugins: `unit-testing`, `tdd-workflows`. Pruebas del esquema, de la validación, de la idempotencia (mismo evento reenviado con el mismo `occurred_at`), de los eventos atrasados y de la carga. La librería de emisión se prueba con el servicio caído.
 
 ### Organización del trabajo
 
-Plugins: `conductor` (seguir cada fase con su criterio de "listo") y `agent-teams` (fases 3 y 4 pueden avanzar en paralelo con la 2 una vez fijado el esquema).
+Plugins: `conductor` (seguir cada fase con su criterio de "listo") y `agent-teams`. Una vez fijado el esquema y la decisión de seudonimización (fase 1), las fases 3 y 4 pueden avanzar en paralelo con la 2.
 
 ### Riesgos principales
 
 | Riesgo | Qué hacer |
 |---|---|
-| El registro frena el producto | Cola y guardado asíncrono; el producto nunca espera |
-| Se junta más de lo permitido | Solo el campo que hace falta; sin texto de mensajes; retención corta |
-| El servidor se queda sin disco o memoria | Medir en Fase 0 y 5; particionar por mes; archivar lo viejo |
+| Idempotencia que no detecta duplicados por el particionado | Clave `(event_id, occurred_at)`; el emisor reenvía ambos idénticos |
+| El registro frena el producto | Guardado corto y asíncrono en el emisor; el producto nunca espera |
+| Reidentificación o clave perdida o rotada | `actor_id` aleatorio, tabla de mapeo con versión de clave, clave fuera de la base |
+| Una persona sigue en las copias tras un borrado | Retención corta de copias, declarada, y re-aplicar el registro de borrados al restaurar |
+| Eventos atrasados que rompen informes | Margen de 7 días, partición `DEFAULT` con alerta y ventana de recálculo |
+| Se junta más de lo permitido | Solo el campo que hace falta; claves permitidas en `context`; sin texto de mensajes; retención corta |
+| El servidor se queda sin disco, memoria o conexiones | Medir en Fase 0 y 5; particionar solo si vale la pena; límites de conexión; archivar lo viejo |
 | El esquema queda corto | `schema_version` y migraciones con vuelta atrás |
-| Eventos duplicados o perdidos | Idempotencia y conteo de rechazados |
+
+### Decisiones que no se pueden tomar sin ver Contabo
+
+- Motor y versión de la base, y si es compartida con otros sistemas (define si el registro vive ahí o en una instancia separada).
+- Extensiones disponibles y recursos reales (define si el particionado mensual vale la pena).
+- Volumen esperado de eventos por día.
+- Cómo se hacen los backups hoy y por cuánto tiempo se conservan.
+- Dónde guardar la clave del hash y quién la administra.
+- Qué identificador real tiene cada persona en cada sistema, y si hay que unificar identidades entre sistemas.
+- Lenguaje y forma de despliegue de cada emisor.
+- Si ya existe un almacén de consentimientos, un broker o un procedimiento de borrado que convenga reutilizar.
+- Jurisdicción aplicable (decisión legal).
 
 ### Primera semana, versión mínima
 
 1. Fase 0 completa.
-2. Esquema y migración de la tabla de eventos.
-3. Entrada de eventos con validación.
-4. Un solo sistema emisor, el más simple, y el informe de eventos por día.
+2. Esquema (en su versión simple o particionada, según el volumen) y migración.
+3. Entrada de eventos con validación e idempotencia.
+4. Un solo sistema emisor, el más simple, y el informe de eventos por día y de rechazos.
 
 Con esto ya se ve si el registro funciona antes de invertir en el resto.
