@@ -818,8 +818,59 @@ El coaching ontológico es una práctica de acompañamiento centrada en el lengu
 
 ### Qué revisar antes de empezar
 
-- [ ] Rango de edad del público.
-- [ ] Quién usa, quién decide y quién paga (familia, colegio, coach).
+- [x] Rango de edad: 4 a 12 años (confirmado).
+- [x] Acompañamiento por un profesional del coaching, con derivación a especialistas (confirmado).
+- [ ] Quién paga (familia, colegio o profesional) y quién decide la compra.
 - [ ] Qué hace la app hoy y cómo guarda los datos.
 - [ ] Qué profesionales validan el contenido y el protocolo de riesgo.
 - [ ] Qué leyes aplican y quién las revisa.
+
+### Confirmado: niños de 4 a 12 años, con acompañamiento profesional
+
+Datos aportados por quien lidera el proyecto: el público tiene entre 4 y 12 años, siempre acompañado por un profesional del coaching, que deriva a otros especialistas cuando hace falta. Esto cambia el enfoque: la app es una **herramienta del profesional**, no un producto directo al niño.
+
+**Tres perfiles:**
+
+| Perfil | Qué hace |
+|---|---|
+| Niño | Realiza las actividades que el profesional le asigna, en sesión o entre sesiones |
+| Profesional de coaching | Elige y configura actividades, ve el progreso y las señales, decide continuar, hablar con la familia o derivar |
+| Familia (madre, padre o tutor) | Da el consentimiento, ve el resumen que el profesional habilite, ajusta límites de tiempo y gestiona las compras |
+
+**Bandas de edad** (orientación general; la validan los profesionales):
+
+| Edad | Diseño |
+|---|---|
+| 4 a 6 | No lee de corrido: pictogramas, instrucciones en audio, actividades de 3 a 5 minutos, con un adulto presente y táctil simple |
+| 7 a 9 | Lectura simple, actividades de 5 a 10 minutos, elegir emociones con imágenes y dibujar |
+| 10 a 12 | Más texto y más autonomía; cuidar su sensación de privacidad: qué ve la familia lo acuerdan el profesional y la familia |
+
+**Datos y privacidad en este rango:**
+
+- Todo el rango de 4 a 12 está por debajo de los umbrales habituales de consentimiento parental (por ejemplo, COPPA aplica a menores de 13). Se requiere el consentimiento del adulto para todos. A confirmar con un abogado según el país.
+- Las respuestas del niño (emociones elegidas, dibujos, notas) son datos sensibles sobre su bienestar emocional. Se guardan lo mínimo, cifradas, con seudónimo, y con acceso solo del profesional asignado y la familia.
+- **No se graba voz ni imagen del niño.** Si hay entrada por voz para los más chicos, se procesa sin guardar el audio y con un consentimiento específico.
+- Sin comparaciones entre niños ni rankings.
+
+**Actividades adaptativas (idea 9, adaptada):**
+
+- El profesional fija el rango de dificultad y la app ajusta solo dentro de ese rango.
+- El puntaje de progreso se compara con **el propio niño** (sus sesiones anteriores), no con una tabla de otros niños.
+- La ayuda siempre es visible, amable y sin penalización.
+
+**Flujo de derivación:**
+
+1. El **profesional define las señales de alerta** y su protocolo (por ejemplo, malestar intenso repetido en las respuestas, palabras de daño en cualquier texto, abandono brusco, cambios marcados respecto de la línea de base del propio niño).
+2. La app **no diagnostica y no muestra nada al niño** sobre esto; avisa de inmediato al profesional, con el contexto mínimo.
+3. El profesional decide: continuar, hablar con la familia o derivar a un especialista (psicología, psicopedagogía, pediatría u otro).
+4. Si la señal sugiere un riesgo inmediato o que el problema está en el entorno familiar, el protocolo lo definen el profesional y un asesor legal. La app no notifica automáticamente a la familia sin ese criterio.
+5. Cada derivación se registra (quién, cuándo, motivo, resultado) en la base común, con acceso solo del profesional.
+6. **La app no decide una derivación por sí sola.**
+
+**Uso de IA:** contenido preaprobado por el profesional. Si un modelo genera variantes de actividades, el profesional las revisa antes de que lleguen al niño. Nunca se muestra texto libre generado directamente al niño.
+
+**Plugins para este caso:** `frontend-mobile-development`, `ui-design`, `accessibility-compliance`, `security-compliance`, `hr-legal-compliance`, `backend-api-security`, `frontend-mobile-security`, `database-design` y, solo para la revisión de contenido, `llm-application-dev`.
+
+**Primera versión mínima:** panel del profesional, entre 3 y 5 actividades, el registro mínimo de la base común y el flujo de alertas al profesional. Sin IA y sin pagos.
+
+**Pendiente de definir:** quién paga (familia, colegio o profesional), en qué países se ofrece, en qué dispositivo se usa (tablet, celular) y si el niño usa la app durante la sesión o también en casa.
