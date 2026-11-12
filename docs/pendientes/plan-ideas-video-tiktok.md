@@ -382,3 +382,26 @@ Ejemplo de gancho (del video analizado): "Hice ingeniería inversa de TikTok par
 - [ ] Reportes más lentos y más usados; si ya hay caché; cómo se manejan los permisos (idea 7).
 - [ ] Redes en las que se publica y qué métricas se pueden exportar (idea 8).
 - [ ] Si Contabo tiene capacidad para el registro, las colas, la transcripción y el precálculo.
+
+---
+
+## 14. Con qué plugins del repo se construiría cada punto
+
+Mapeo hecho a partir de la descripción de cada plugin (`plugins/*/.claude-plugin/plugin.json`); no se probaron todavía. Ningún plugin hace la lógica de recomendación por sí mismo: aportan los especialistas que programan, prueban y despliegan cada pieza.
+
+**Base común (registro de eventos, idea 0):** `database-design`, `database-migrations`, `data-engineering`, `backend-development`, `data-validation-suite`, `security-compliance`.
+
+| Idea | Plugins principales | Apoyo |
+|---|---|---|
+| 1. Feed | `backend-development`, `data-engineering`, `machine-learning-ops` (modelo entrenado, más adelante) | `python-development`, `database-design`, `business-analytics` |
+| 2. Tienda | `backend-development`, `database-design`, `customer-sales-automation` (recordatorio de carrito) | `payment-processing` (si se toca el checkout), `business-analytics`, `machine-learning-ops` |
+| 3. Aprendizaje | `frontend-mobile-development`, `ui-design`, `backend-development` | `llm-application-dev` (explicaciones en otro formato), `data-engineering`, `business-analytics` |
+| 4. Agente de atención | `llm-application-dev`, `agent-orchestration`, `customer-sales-automation` | `backend-development`, `python-development`, `observability-monitoring`, `hr-legal-compliance` (texto de privacidad) |
+| 5. Envío en hora óptima | `customer-sales-automation`, `backend-development` (flujos con Temporal para el planificador) | `database-design`, `data-engineering`, `security-compliance` (consentimiento) |
+| 6. App móvil | `frontend-mobile-development`, `multi-platform-apps`, `application-performance` | `api-scaffolding`, `frontend-mobile-security`, `observability-monitoring` |
+| 7. Tablero interno | `database-cloud-optimization`, `application-performance`, `data-engineering` | `backend-development`, `observability-monitoring`, `business-analytics` |
+| 8. Videos propios | `content-marketing` | `business-analytics`; la producción y publicación usan herramientas externas al repo (HyperFrames, Canva, Postiz) |
+
+**Transversales para todo, sobre todo para llevarlo a Contabo:** `deployment-strategies`, `deployment-validation`, `cicd-automation`, `shell-scripting`, `observability-monitoring`, `security-scanning`, `unit-testing`, `tdd-workflows`, `documentation-generation`, `incident-response`. Para organizar el trabajo: `conductor` (seguimiento por fases) y `agent-teams` (varios agentes en paralelo).
+
+**Salvedad:** `cloud-infrastructure` y `kubernetes-operations` apuntan a AWS, Azure, GCP y Kubernetes. Contabo es un servidor VPS, así que solo sirven si se usa Terraform o Kubernetes allí; hay que confirmarlo al ver el servidor.
